@@ -1,4 +1,4 @@
-name: 规则合并去重（含GeoIP解析）
+name: 规则合并去重
 
 on:
   schedule:
@@ -14,67 +14,104 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装依赖
-        run: |
-          # 安装 Python 和 pip
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip
-          # 安装 v2ray-dat 解析库
-          pip3 install v2ray-dat
-      
       - name: 下载 Loyalsoldier 规则并提取域名
         run: |
           echo "📥 下载 Loyalsoldier 规则集..."
           curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
-          curl -sSL -o geoip.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geoip.dat
           
-          echo "🔧 提取域名（使用 Python）..."
+          echo "🔧 使用 Python 解析 geosite.dat..."
           python3 << 'EOF'
-          import os
+          import struct
           import sys
+          import gzip
+          import io
           
-          # 尝试导入解析库
-          try:
-              from v2ray_dat import GeoSite
-          except ImportError:
-              print("⚠️ v2ray-dat 未安装，尝试备用方案...")
+          def decode_bytes(data):
+              """尝试多种编码解码字节数据"""
+              for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
+                  try:
+                      return data.decode(encoding)
+                  except:
+                      continue
+              return data.decode('utf-8', errors='ignore')
+          
+          def parse_geosite_dat(filename):
+              """解析 geosite.dat 文件，提取所有域名"""
+              domains = set()
+              
+              try:
+                  with open(filename, 'rb') as f:
+                      data = f.read()
+                  
+                  # 尝试用字符串方式提取
+                  # 方法1: 查找域名模式
+                  import re
+                  pattern = rb'([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}'
+                  matches = re.findall(pattern, data)
+                  
+                  for match in matches:
+                      domain = decode_bytes(match[0] if isinstance(match, tuple) else match)
+                      # 清理
+                      domain = domain.strip().lower()
+                      # 去掉通配符前缀
+                      if domain.startswith('.'):
+                          domain = domain[1:]
+                      if domain.startswith('*.'):
+                          domain = domain[2:]
+                      # 过滤无效域名
+                      if len(domain) > 3 and '.' in domain and not domain.startswith('example'):
+                          domains.add(domain)
+                  
+                  print(f"✅ 通过正则提取到 {len(domains)} 个域名")
+                  
+                  # 方法2: 尝试解压gzip（部分dat是gzip压缩的）
+                  try:
+                      gz_data = gzip.decompress(data)
+                      matches2 = re.findall(pattern, gz_data)
+                      for match in matches2:
+                          domain = decode_bytes(match[0] if isinstance(match, tuple) else match)
+                          domain = domain.strip().lower()
+                          if domain.startswith('.'):
+                              domain = domain[1:]
+                          if domain.startswith('*.'):
+                              domain = domain[2:]
+                          if len(domain) > 3 and '.' in domain:
+                              domains.add(domain)
+                      print(f"✅ 解压后提取到 {len(domains)} 个域名")
+                  except:
+                      pass
+                      
+              except Exception as e:
+                  print(f"⚠️ 解析出错: {e}")
+                  sys.exit(1)
+              
+              # 写入文件
+              with open("loyalsoldier_domains.txt", "w") as f:
+                  for d in sorted(domains):
+                      f.write(d + "\n")
+              
+              print(f"📊 最终提取 {len(domains)} 个唯一域名")
+              return len(domains)
+          
+          # 执行解析
+          count = parse_geosite_dat("geosite.dat")
+          if count == 0:
+              print("⚠️ 未提取到任何域名，使用备用方案...")
               sys.exit(1)
-          
-          # 解析 geosite.dat，提取所有域名
-          domains = set()
-          try:
-              gs = GeoSite.from_file("geosite.dat")
-              for domain in gs.domains:
-                  # 提取完整域名，去掉通配符前缀
-                  if domain.startswith('.'):
-                      domain = domain[1:]
-                  if domain.startswith('*.'):
-                      domain = domain[2:]
-                  domains.add(domain.lower())
-          except Exception as e:
-              print(f"⚠️ 解析失败: {e}")
-              sys.exit(1)
-          
-          # 写入文件
-          with open("loyalsoldier_domains.txt", "w") as f:
-              for d in sorted(domains):
-                  f.write(d + "\n")
-          
-          print(f"✅ 提取完成！共 {len(domains)} 个域名")
           EOF
           
-          # 如果 Python 解析失败，尝试用 grep 备用方案
+          # 如果Python提取失败，使用strings备用方案
           if [ ! -s loyalsoldier_domains.txt ]; then
-            echo "⚠️ Python 解析失败，使用备用方案 (strings + grep)..."
+            echo "⚠️ Python解析失败，使用备用方案 (strings)..."
             strings geosite.dat | grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
-              sort -u > loyalsoldier_domains.txt
+              grep -v '^[0-9]' | sort -u > loyalsoldier_domains.txt
           fi
           
-          echo "📊 Loyalsoldier 域名数量: $(wc -l < loyalsoldier_domains.txt)"
+          echo "📊 Loyalsoldier 域名数量: $(wc -l < loyalsoldier_domains.txt 2>/dev/null || echo 0)"
 
-      - name: 下载其他规则源并合并
+      - name: 合并其他规则源
         run: |
-          # 如果 sources.txt 不存在则跳过
+          # 如果 sources.txt 不存在则创建空文件
           if [ ! -f sources.txt ]; then
             echo "⚠️ sources.txt 不存在，仅使用 Loyalsoldier 规则"
             > sources.txt
@@ -83,10 +120,10 @@ jobs:
           > raw.txt
           > failed.txt
           
-          # 先加入 Loyalsoldier 提取的域名
+          # 加入 Loyalsoldier 域名
           if [ -s loyalsoldier_domains.txt ]; then
             cat loyalsoldier_domains.txt >> raw.txt
-            echo "✅ 已加入 Loyalsoldier 规则"
+            echo "✅ 已加入 Loyalsoldier 规则 ($(wc -l < loyalsoldier_domains.txt) 条)"
           fi
           
           # 遍历其他规则源
@@ -109,7 +146,7 @@ jobs:
           # 去重并过滤
           if [ ! -s raw.txt ]; then
             echo "⚠️ 没有提取到任何域名"
-            echo "# 空规则集" > whitelist.txt
+            echo "# 空规则集 - 所有源下载失败" > whitelist.txt
           else
             cat raw.txt | \
               awk '{print tolower($0)}' | \
@@ -134,20 +171,14 @@ jobs:
           echo "payload:" >> whitelist_clash.yaml
           
           if [ -s whitelist.txt ]; then
-            cat whitelist.txt | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
+            # 限制行数，避免文件过大（Clash有性能问题）
+            cat whitelist.txt | head -n 50000 | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
+            echo "# 共 $(wc -l < whitelist.txt) 条规则（仅导出前50000条）" >> whitelist_clash.yaml
           else
             echo "  - '+.example.com'  # 占位" >> whitelist_clash.yaml
           fi
           
           echo "✅ Clash 格式已生成"
-
-      - name: 生成 Surge 格式（可选）
-        run: |
-          echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_surge.list
-          if [ -s whitelist.txt ]; then
-            cat whitelist.txt | sed 's/^/DOMAIN-SUFFIX,/' >> whitelist_surge.list
-          fi
-          echo "✅ Surge 格式已生成"
 
       - name: 提交并推送
         run: |
@@ -156,7 +187,7 @@ jobs:
           
           git pull --rebase || echo "没有可拉取的更新"
           
-          git add whitelist.txt whitelist_clash.yaml whitelist_surge.list 2>/dev/null || true
+          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
           
           if git diff --cached --quiet; then
             echo "ℹ️ 没有新规则，跳过提交"
