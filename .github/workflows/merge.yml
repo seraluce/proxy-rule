@@ -20,7 +20,7 @@ jobs:
       - name: 下载并完整解析 geosite.dat
         run: |
           echo "📥 下载 Loyalsoldier 规则集..."
-          curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat || {
+          curl -sSL --connect-timeout 15 --max-time 120 -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat || {
             echo "❌ 下载 geosite.dat 失败"
             exit 1
           }
@@ -187,34 +187,83 @@ jobs:
           echo "📊 外部源统计: 成功 $success_num 个, 失败 $fail_num 个"
 
           if [ ! -s raw.txt ]; then
-            echo "# 空规则集" > whitelist.txt
+            echo "# 空规则集" > direct.txt
           else
-            cat raw.txt | awk '{print tolower($0)}' | sort -u | awk 'length($0) > 3' > whitelist.txt
-            echo "✅ 合并完成！共 $(wc -l < whitelist.txt) 条规则"
+            cat raw.txt | awk '{print tolower($0)}' | sort -u | awk 'length($0) > 3' > direct.txt
+            echo "✅ 合并完成！共 $(wc -l < direct.txt) 条规则"
           fi
+
+      - name: 合并自定义规则
+        run: |
+          if [ -f custom.txt ]; then
+            echo "📥 合并自定义规则..."
+            cat custom.txt | grep -v '^#' | grep -v '^$' | \
+              grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
+              sort -u >> direct.txt
+            echo "✅ 已合并自定义规则"
+          else
+            echo "ℹ️ custom.txt 不存在，跳过自定义规则合并"
+          fi
+
+          # 最终去重排序
+          sort -u direct.txt -o direct.txt
+          echo "📊 最终规则总数: $(wc -l < direct.txt)"
 
       - name: 生成 Clash 格式
         run: |
           {
             echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
             echo "# 上游来源: v2fly/domain-list-community + 自定义规则"
+            echo "# 类型: 直连规则（中国域名直连）"
             echo "payload:"
-            if [ -s whitelist.txt ]; then
-              total=$(wc -l < whitelist.txt)
-              cat whitelist.txt | head -n 50000 | sed 's/^/  - "+.&"/'
+            if [ -s direct.txt ]; then
+              total=$(wc -l < direct.txt)
+              cat direct.txt | head -n 50000 | sed 's/^/  - "+.&"/'
               echo "# 共 ${total} 条规则（仅导出前50000条）"
             else
               echo "  - '+.example.com'  # 占位"
             fi
-          } > whitelist_clash.yaml
+          } > direct_clash.yaml
           echo "✅ Clash 格式已生成"
+
+      - name: 验证输出文件
+        run: |
+          echo "🔍 验证输出文件..."
+          
+          # 检查 direct.txt
+          if [ -f direct.txt ]; then
+            lines=$(wc -l < direct.txt)
+            echo "   direct.txt: $lines 行"
+            if [ "$lines" -lt 1 ]; then
+              echo "❌ direct.txt 为空"
+              exit 1
+            fi
+          else
+            echo "❌ direct.txt 不存在"
+            exit 1
+          fi
+          
+          # 检查 direct_clash.yaml
+          if [ -f direct_clash.yaml ]; then
+            lines=$(wc -l < direct_clash.yaml)
+            echo "   direct_clash.yaml: $lines 行"
+            if ! grep -q "payload:" direct_clash.yaml; then
+              echo "❌ direct_clash.yaml 缺少 payload 字段"
+              exit 1
+            fi
+          else
+            echo "❌ direct_clash.yaml 不存在"
+            exit 1
+          fi
+          
+          echo "✅ 验证通过"
 
       - name: 提交并推送
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase || echo "没有可拉取的更新"
-          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
+          git add direct.txt direct_clash.yaml 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "ℹ️ 没有新规则，跳过提交"
             exit 0
