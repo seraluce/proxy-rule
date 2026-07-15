@@ -2,13 +2,13 @@ name: 规则合并去重
 
 on:
   schedule:
-    - cron: '0 6 * * *'      # 每天 UTC 6:00（北京时间 14:00）自动运行
-  workflow_dispatch:          # 支持手动触发
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   merge-rules:
     runs-on: ubuntu-latest
-    timeout-minutes: 10       # 防止卡死
+    timeout-minutes: 10
     
     steps:
       - name: 检出代码
@@ -24,6 +24,7 @@ jobs:
           
           # 清空临时文件
           > raw.txt
+          > failed.txt
           
           # 遍历每个规则源
           while read -r url; do
@@ -32,39 +33,51 @@ jobs:
             
             echo "📥 下载: $url"
             
-            # 下载并提取域名（容错处理）
-            curl -sSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
-              grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
-              grep -v '^[0-9]' >> raw.txt || {
-                echo "⚠️  警告：$url 下载失败或没有域名"
-                continue
-              }
+            # 下载并提取域名，失败则记录
+            if curl -sSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
+               grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
+               grep -v '^[0-9]' >> raw.txt; then
+              echo "   ✅ 成功"
+            else
+              echo "   ⚠️ 失败，跳过"
+              echo "$url" >> failed.txt
+            fi
             
           done < sources.txt
           
-          # 如果 raw.txt 为空，终止任务
+          # 检查是否有任何域名被提取
           if [ ! -s raw.txt ]; then
-            echo "❌ 没有提取到任何域名！"
-            exit 1
+            echo "⚠️ 警告：没有提取到任何域名，可能所有源都挂了"
+            # 不退出，继续执行，但生成空文件
+            echo "# 空规则集 - 所有源下载失败" > whitelist.txt
+          else
+            # 排序去重，过滤无效域名
+            cat raw.txt | \
+              awk '{print tolower($0)}' | \
+              sort -u | \
+              awk 'length($0) > 3' > whitelist.txt
+            
+            echo "✅ 合并完成！共 $(wc -l < whitelist.txt) 条规则"
           fi
           
-          # 排序去重，并过滤掉过短的无效域名
-          cat raw.txt | \
-            awk '{print tolower($0)}' | \
-            sort -u | \
-            awk 'length($0) > 3' > whitelist.txt
+          # 显示失败列表
+          if [ -s failed.txt ]; then
+            echo "⚠️ 以下源下载失败："
+            cat failed.txt
+          fi
           
-          # 统计结果
-          echo "✅ 合并完成！共 $(wc -l < whitelist.txt) 条规则"
           echo "📋 前 10 条预览："
-          head -n 10 whitelist.txt
+          head -n 10 whitelist.txt 2>/dev/null || echo "（空文件）"
 
-      - name: 转换为 Clash 格式（可选）
+      - name: 生成 Clash 格式
         run: |
-          # 如果你用 Clash，可以生成一份 yaml 格式的规则
           echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_clash.yaml
           echo "payload:" >> whitelist_clash.yaml
-          cat whitelist.txt | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
+          if [ -s whitelist.txt ]; then
+            cat whitelist.txt | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
+          else
+            echo "  - "+.example.com"  # 占位，防止格式错误" >> whitelist_clash.yaml
+          fi
           echo "✅ Clash 格式已生成"
 
       - name: 提交并推送
@@ -72,14 +85,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # 拉取最新代码，避免冲突
+          git pull --rebase || echo "没有可拉取的更新"
+          
           # 检查是否有变更
-          if git diff --quiet; then
+          if git diff --quiet && git diff --staged --quiet; then
             echo "ℹ️ 没有新规则，跳过提交"
             exit 0
           fi
           
-          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || git add whitelist.txt
-          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')"
-          git push
+          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
+          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')" || echo "ℹ️ 没有变更可提交"
+          git push || echo "⚠️ 推送失败，可能有冲突"
           
-          echo "🎉 推送成功！"
+          echo "🎉 完成！"
