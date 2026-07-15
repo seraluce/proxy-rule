@@ -17,61 +17,128 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 安装 Python 依赖
-        run: |
-          pip3 install v2ray-dat --break-system-packages || pip3 install v2ray-dat
-
       - name: 下载并完整解析 geosite.dat
         run: |
           echo "📥 下载 Loyalsoldier 规则集..."
           curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
 
-          echo "🔧 用 Python 完整解析 geosite.dat..."
-          python3 << 'EOF'
+          echo "🔧 用纯 Python 解析 geosite.dat（无需第三方依赖）..."
+          python3 << 'PYEOF'
           import sys
-          from v2ray_dat import GeoSite
+
+          # 纯 Python protobuf 解码 geosite.dat（零依赖）
+          def read_varint(data, pos):
+              result = 0
+              shift = 0
+              while pos < len(data):
+                  b = data[pos]
+                  result |= (b & 0x7f) << shift
+                  pos += 1
+                  if not (b & 0x80):
+                      break
+                  shift += 7
+              return result, pos
+
+          def decode_field(data, pos):
+              if pos >= len(data):
+                  return None, None, None, pos
+              tag, pos = read_varint(data, pos)
+              field_number = tag >> 3
+              wire_type = tag & 0x07
+              if wire_type == 0:
+                  value, pos = read_varint(data, pos)
+                  return field_number, wire_type, value, pos
+              elif wire_type == 2:
+                  length, pos = read_varint(data, pos)
+                  if pos + length > len(data):
+                      return field_number, wire_type, b"", len(data)
+                  value = data[pos:pos+length]
+                  return field_number, wire_type, value, pos + length
+              else:
+                  return field_number, wire_type, None, len(data)
+
+          def decode_string(data):
+              return data.decode('utf-8', errors='replace')
+
+          def decode_entries(data):
+              entries = []
+              pos = 0
+              while pos < len(data):
+                  fn, wt, val, pos = decode_field(data, pos)
+                  if fn == 1 and wt == 2:
+                      entries.append(decode_string(val))
+              return entries
+
+          def decode_geosite(data):
+              tags = {}
+              pos = 0
+              country_code = ""
+              while pos < len(data):
+                  fn, wt, val, pos = decode_field(data, pos)
+                  if fn == 1 and wt == 2:
+                      country_code = decode_string(val)
+                  elif fn == 2 and wt == 2:
+                      entries = decode_entries(val)
+                      if country_code:
+                          if country_code not in tags:
+                              tags[country_code] = set()
+                          for e in entries:
+                              tags[country_code].add(e)
+              return tags
 
           try:
-              gs = GeoSite.from_file('geosite.dat')
+              with open('geosite.dat', 'rb') as f:
+                  gs_data = f.read()
+              tags = decode_geosite(gs_data)
           except Exception as e:
               print(f"❌ 解析失败: {e}")
               sys.exit(1)
 
+          print(f"✅ 成功解析，共 {len(tags)} 个分类")
+          if tags:
+              print(f"   分类列表: {', '.join(sorted(tags.keys())[:15])}...")
+
           domains = set()
           suffix_domains = set()
+          target_tags = ['cn', 'gov', 'edu', 'mil']
 
-          # 遍历所有分类
-          for tag_name, tag_data in gs.tags.items():
-              if tag_name in ['cn', 'gov', 'edu', 'mil']:  # 重点提取这些分类
-                  for item in tag_data:
-                      domain_str = str(item)
-                      # 处理不同的格式
-                      if domain_str.startswith('domain:'):
-                          domains.add(domain_str[7:].lower())
-                      elif domain_str.startswith('suffix:'):
-                          suffix_domains.add(domain_str[7:].lower())
-                      elif domain_str.startswith('full:'):
-                          domains.add(domain_str[5:].lower())
-                      elif '.' in domain_str and len(domain_str) > 3:
-                          # 兜底：如果看起来像域名就直接加
-                          domains.add(domain_str.lower())
+          for tag_name in target_tags:
+              tag_data = tags.get(tag_name, set())
+              if not tag_data:
+                  print(f"⚠️ 分类 '{tag_name}' 未找到或为空")
+                  continue
+              count = 0
+              for item in tag_data:
+                  domain_str = item.strip()
+                  if domain_str.startswith('domain:'):
+                      domains.add(domain_str[7:].lower())
+                      count += 1
+                  elif domain_str.startswith('suffix:'):
+                      suffix_domains.add(domain_str[7:].lower())
+                      count += 1
+                  elif domain_str.startswith('full:'):
+                      domains.add(domain_str[5:].lower())
+                      count += 1
+                  elif domain_str.startswith('keyword:') or domain_str.startswith('regexp:'):
+                      pass  # 跳过关键词和正则规则
+                  elif '.' in domain_str and len(domain_str) > 3:
+                      domains.add(domain_str.lower())
+                      count += 1
+              print(f"   [{tag_name}] 提取 {count} 条规则")
 
-          # 把后缀也作为域名加入（比如 gov.cn 本身）
           domains.update(suffix_domains)
 
           print(f"✅ 共提取 {len(domains)} 个域名，其中 {len(suffix_domains)} 个是后缀规则")
 
-          # 写入文件
           with open('loyalsoldier_domains.txt', 'w') as f:
               for d in sorted(domains):
                   f.write(d + '\n')
 
-          # 检查是否有 gov.cn
           gov_count = sum(1 for d in domains if 'gov.cn' in d)
           print(f"📊 包含 gov.cn 的条目数: {gov_count}")
           if gov_count > 0:
-              print("  示例: " + ', '.join(list(d for d in domains if 'gov.cn' in d)[:5]))
-          EOF
+              print("  示例: " + ', '.join(sorted(d for d in domains if 'gov.cn' in d)[:5]))
+          PYEOF
 
       - name: 合并其他规则源
         run: |
@@ -88,18 +155,31 @@ jobs:
             echo "✅ 已加入 Loyalsoldier 规则 ($(wc -l < loyalsoldier_domains.txt) 条)"
           fi
 
+          success_num=0
+          fail_num=0
           while read -r url; do
             [[ -z "$url" || "$url" =~ ^# ]] && continue
             echo "📥 下载: $url"
-            if curl -sSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
-               grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
-               grep -v '^[0-9]' >> raw.txt; then
+            content=$(curl -sSL --connect-timeout 15 --max-time 60 "$url" 2>/dev/null)
+            if [ -n "$content" ]; then
+              # 兼容多种格式：纯域名、YAML (- +.domain)、ACL、dnsmasq (server=/domain/)
+              echo "$content" | \
+                sed 's/^- +\.\([a-zA-Z0-9].*\)/\1/' | \
+                sed 's/^server=\/\([a-zA-Z0-9].*\)/\1/' | \
+                sed 's/^\*\.\([a-zA-Z0-9].*\)/\1/' | \
+                grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
+                grep -v '^[0-9]' | \
+                grep -v '^\*' >> raw.txt
               echo "   ✅ 成功"
+              success_num=$((success_num + 1))
             else
               echo "   ⚠️ 失败，跳过"
               echo "$url" >> failed.txt
+              fail_num=$((fail_num + 1))
             fi
           done < sources.txt
+
+          echo "📊 外部源统计: 成功 $success_num 个, 失败 $fail_num 个"
 
           if [ ! -s raw.txt ]; then
             echo "# 空规则集" > whitelist.txt
@@ -110,15 +190,18 @@ jobs:
 
       - name: 生成 Clash 格式
         run: |
-          echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_clash.yaml
-          echo "# 上游来源: Loyalsoldier/v2ray-rules-dat + 自定义规则" >> whitelist_clash.yaml
-          echo "payload:" >> whitelist_clash.yaml
-          if [ -s whitelist.txt ]; then
-            cat whitelist.txt | head -n 50000 | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
-            echo "# 共 $(wc -l < whitelist.txt) 条规则（仅导出前50000条）" >> whitelist_clash.yaml
-          else
-            echo "  - '+.example.com'  # 占位" >> whitelist_clash.yaml
-          fi
+          {
+            echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "# 上游来源: v2fly/domain-list-community + 自定义规则"
+            echo "payload:"
+            if [ -s whitelist.txt ]; then
+              total=$(wc -l < whitelist.txt)
+              cat whitelist.txt | head -n 50000 | sed 's/^/  - "+.&"/'
+              echo "# 共 ${total} 条规则（仅导出前50000条）"
+            else
+              echo "  - '+.example.com'  # 占位"
+            fi
+          } > whitelist_clash.yaml
           echo "✅ Clash 格式已生成"
 
       - name: 提交并推送

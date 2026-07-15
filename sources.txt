@@ -1,3 +1,5 @@
-https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/banAD.acl
-https://raw.githubusercontent.com/MortyFx/gfw_whitelist/master/whitelist.list
-https://raw.githubusercontent.com/cyzzc/Shadowrocket-ADBlock/master/whitelist.conf
+# 规则源列表（每行一个 URL，# 开头为注释）
+# 以下是可靠的中国直连域名规则源
+https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domainlist.txt
+https://raw.githubusercontent.com/banbendalao/ADgk/master/ADgk.txt
+https://github.com/felixonmars/dnsmasq-china-list/raw/master/china-list.txt
