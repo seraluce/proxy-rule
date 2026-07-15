@@ -20,7 +20,10 @@ jobs:
       - name: 下载并完整解析 geosite.dat
         run: |
           echo "📥 下载 Loyalsoldier 规则集..."
-          curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
+          curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat || {
+            echo "❌ 下载 geosite.dat 失败"
+            exit 1
+          }
 
           echo "🔧 用纯 Python 解析 geosite.dat（无需第三方依赖）..."
           python3 << 'PYEOF'
@@ -153,6 +156,8 @@ jobs:
           if [ -s loyalsoldier_domains.txt ]; then
             cat loyalsoldier_domains.txt >> raw.txt
             echo "✅ 已加入 Loyalsoldier 规则 ($(wc -l < loyalsoldier_domains.txt) 条)"
+          else
+            echo "⚠️ loyalsoldier_domains.txt 为空或不存在，跳过"
           fi
 
           success_num=0
@@ -160,7 +165,7 @@ jobs:
           while read -r url; do
             [[ -z "$url" || "$url" =~ ^# ]] && continue
             echo "📥 下载: $url"
-            content=$(curl -sSL --connect-timeout 15 --max-time 60 "$url" 2>/dev/null)
+            content=$(curl -sSL --connect-timeout 15 --max-time 60 "$url" 2>/dev/null || true)
             if [ -n "$content" ]; then
               # 兼容多种格式：纯域名、YAML (- +.domain)、ACL、dnsmasq (server=/domain/)
               echo "$content" | \
@@ -169,7 +174,7 @@ jobs:
                 sed 's/^\*\.\([a-zA-Z0-9].*\)/\1/' | \
                 grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
                 grep -v '^[0-9]' | \
-                grep -v '^\*' >> raw.txt
+                grep -v '^\*' >> raw.txt || true
               echo "   ✅ 成功"
               success_num=$((success_num + 1))
             else

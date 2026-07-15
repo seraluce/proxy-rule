@@ -1,5 +1,6 @@
 # 规则源列表（每行一个 URL，# 开头为注释）
-# 以下是可靠的中国直连域名规则源
-https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domainlist.txt
-https://raw.githubusercontent.com/banbendalao/ADgk/master/ADgk.txt
-https://github.com/felixonmars/dnsmasq-china-list/raw/master/china-list.txt
+# 以下源如果失败不影响主流程，geosite.dat 已包含核心规则
+# v2fly 域名列表社区直连规则
+https://raw.githubusercontent.com/v2fly/domain-list-community/master/geosite/cn
+# Loyalsoldier 直连规则
+https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt
