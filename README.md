@@ -23,9 +23,9 @@
 
 | 格式 | 地址 |
 |------|------|
-| 纯域名列表 | `https://你的域名/direct.txt` |
-| Clash 格式 | `https://你的域名/direct_clash.yaml` |
-| 简化路径 | `https://你的域名/txt` 或 `https://你的域名/clash` |
+| 纯域名列表 | `https://你的域名/direct` |
+| Clash 格式 | `https://你的域名/clash` |
+| 带扩展名 | `https://你的域名/direct.txt` 或 `https://你的域名/direct_clash.yaml` |
 
 ## 文件说明
 

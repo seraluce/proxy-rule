@@ -3,13 +3,15 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // 支持的文件映射
+    // 支持的文件映射（不带扩展名也能访问）
     const fileMap = {
-      '/': '/direct.txt',
-      '/direct.txt': '/direct.txt',
-      '/direct_clash.yaml': '/direct_clash.yaml',
-      '/clash': '/direct_clash.yaml',
-      '/txt': '/direct.txt',
+      '/': 'direct.txt',
+      '/direct': 'direct.txt',
+      '/clash': 'direct_clash.yaml',
+      '/yaml': 'direct_clash.yaml',
+      // 也支持带扩展名的路径
+      '/direct.txt': 'direct.txt',
+      '/direct_clash.yaml': 'direct_clash.yaml',
     };
 
     // GitHub Raw 地址
