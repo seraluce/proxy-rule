@@ -1,0 +1,3 @@
+https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/banAD.acl
+https://raw.githubusercontent.com/MortyFx/gfw_whitelist/master/whitelist.list
+https://raw.githubusercontent.com/cyzzc/Shadowrocket-ADBlock/master/whitelist.conf
