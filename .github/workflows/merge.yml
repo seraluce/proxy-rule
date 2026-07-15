@@ -1,4 +1,4 @@
-name: 规则合并去重
+name: 规则合并去重（带详细日志）
 
 on:
   schedule:
@@ -11,23 +11,32 @@ jobs:
     timeout-minutes: 15
     
     steps:
+      - name: 🚀 开始执行
+        run: echo "✅ 工作流已启动 at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
       - name: 检出代码
         uses: actions/checkout@v4
 
       - name: 下载 Loyalsoldier 规则并提取域名
+        id: extract
         run: |
-          echo "📥 下载 Loyalsoldier 规则集..."
+          echo "📥 [1/5] 下载 Loyalsoldier 规则集..."
           curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
           
-          echo "🔧 使用 Python 解析 geosite.dat..."
+          # 检查文件是否下载成功
+          if [ ! -f geosite.dat ] || [ ! -s geosite.dat ]; then
+            echo "❌ geosite.dat 下载失败或为空！"
+            exit 1
+          fi
+          echo "✅ 下载成功，文件大小: $(du -h geosite.dat | cut -f1)"
+          
+          echo "🔧 [2/5] 解析 geosite.dat 提取域名..."
           python3 << 'EOF'
-          import struct
+          import re
           import sys
           import gzip
-          import io
           
           def decode_bytes(data):
-              """尝试多种编码解码字节数据"""
               for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
                   try:
                       return data.decode(encoding)
@@ -35,85 +44,104 @@ jobs:
                       continue
               return data.decode('utf-8', errors='ignore')
           
-          def parse_geosite_dat(filename):
-              """解析 geosite.dat 文件，提取所有域名"""
+          def extract_domains_from_data(data):
+              """从二进制数据中提取域名"""
+              pattern = rb'([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}'
+              matches = re.findall(pattern, data)
               domains = set()
               
-              try:
-                  with open(filename, 'rb') as f:
-                      data = f.read()
-                  
-                  # 尝试用字符串方式提取
-                  # 方法1: 查找域名模式
-                  import re
-                  pattern = rb'([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}'
-                  matches = re.findall(pattern, data)
-                  
-                  for match in matches:
-                      domain = decode_bytes(match[0] if isinstance(match, tuple) else match)
-                      # 清理
-                      domain = domain.strip().lower()
-                      # 去掉通配符前缀
-                      if domain.startswith('.'):
-                          domain = domain[1:]
-                      if domain.startswith('*.'):
-                          domain = domain[2:]
-                      # 过滤无效域名
-                      if len(domain) > 3 and '.' in domain and not domain.startswith('example'):
-                          domains.add(domain)
-                  
-                  print(f"✅ 通过正则提取到 {len(domains)} 个域名")
-                  
-                  # 方法2: 尝试解压gzip（部分dat是gzip压缩的）
-                  try:
-                      gz_data = gzip.decompress(data)
-                      matches2 = re.findall(pattern, gz_data)
-                      for match in matches2:
-                          domain = decode_bytes(match[0] if isinstance(match, tuple) else match)
-                          domain = domain.strip().lower()
-                          if domain.startswith('.'):
-                              domain = domain[1:]
-                          if domain.startswith('*.'):
-                              domain = domain[2:]
-                          if len(domain) > 3 and '.' in domain:
-                              domains.add(domain)
-                      print(f"✅ 解压后提取到 {len(domains)} 个域名")
-                  except:
-                      pass
-                      
-              except Exception as e:
-                  print(f"⚠️ 解析出错: {e}")
-                  sys.exit(1)
+              for match in matches:
+                  domain = decode_bytes(match[0] if isinstance(match, tuple) else match)
+                  domain = domain.strip().lower()
+                  if domain.startswith('.'):
+                      domain = domain[1:]
+                  if domain.startswith('*.'):
+                      domain = domain[2:]
+                  if len(domain) > 3 and '.' in domain and not domain.startswith('example'):
+                      domains.add(domain)
               
-              # 写入文件
-              with open("loyalsoldier_domains.txt", "w") as f:
-                  for d in sorted(domains):
-                      f.write(d + "\n")
-              
-              print(f"📊 最终提取 {len(domains)} 个唯一域名")
-              return len(domains)
+              return domains
           
-          # 执行解析
-          count = parse_geosite_dat("geosite.dat")
-          if count == 0:
-              print("⚠️ 未提取到任何域名，使用备用方案...")
-              sys.exit(1)
+          # 读取原始文件
+          with open('geosite.dat', 'rb') as f:
+              data = f.read()
+          
+          domains = set()
+          
+          # 尝试方法1: 直接搜索
+          domains1 = extract_domains_from_data(data)
+          print(f'  方法1 (直接搜索): {len(domains1)} 个域名')
+          domains.update(domains1)
+          
+          # 尝试方法2: gzip解压后搜索
+          try:
+              decompressed = gzip.decompress(data)
+              domains2 = extract_domains_from_data(decompressed)
+              print(f'  方法2 (gzip解压): {len(domains2)} 个域名')
+              domains.update(domains2)
+          except:
+              print('  方法2 (gzip解压): 失败，跳过')
+          
+          # 尝试方法3: 使用字符串搜索
+          try:
+              text_data = data.decode('utf-8', errors='ignore')
+              pattern_str = r'([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}'
+              matches3 = re.findall(pattern_str, text_data)
+              for match in matches3:
+                  domain = match.strip().lower()
+                  if domain.startswith('.'):
+                      domain = domain[1:]
+                  if domain.startswith('*.'):
+                      domain = domain[2:]
+                  if len(domain) > 3 and '.' in domain:
+                      domains.add(domain)
+              print(f'  方法3 (文本搜索): 新增了一些域名')
+          except:
+              pass
+          
+          # 写入结果
+          with open('loyalsoldier_domains.txt', 'w') as f:
+              for d in sorted(domains):
+                  f.write(d + '\n')
+          
+          print(f'📊 [3/5] 总共提取 {len(domains)} 个唯一域名')
+          
+          # 输出前10个样本
+          sample = list(sorted(domains))[:10]
+          print('📋 样本域名:')
+          for s in sample:
+              print(f'  - {s}')
           EOF
           
-          # 如果Python提取失败，使用strings备用方案
+          # 验证提取结果
           if [ ! -s loyalsoldier_domains.txt ]; then
-            echo "⚠️ Python解析失败，使用备用方案 (strings)..."
+            echo "❌ Python 提取失败，尝试备用方案 (strings)..."
             strings geosite.dat | grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
               grep -v '^[0-9]' | sort -u > loyalsoldier_domains.txt
           fi
           
-          echo "📊 Loyalsoldier 域名数量: $(wc -l < loyalsoldier_domains.txt 2>/dev/null || echo 0)"
+          # 最终验证
+          DOMAIN_COUNT=$(wc -l < loyalsoldier_domains.txt 2>/dev/null || echo 0)
+          echo "📊 最终域名数量: $DOMAIN_COUNT"
+          
+          if [ "$DOMAIN_COUNT" -lt 100 ]; then
+            echo "⚠️ 警告：域名数量少于100，可能提取有问题！"
+            echo "查看文件内容："
+            head -n 20 loyalsoldier_domains.txt
+          else
+            echo "✅ 提取成功！"
+          fi
+          
+          # 保存变量供后续使用
+          echo "domain_count=$DOMAIN_COUNT" >> $GITHUB_ENV
+          echo "✅ [4/5] 域名提取完成"
 
       - name: 合并其他规则源
         run: |
-          # 如果 sources.txt 不存在则创建空文件
+          echo "📥 [5/5] 合并其他规则源..."
+          
           if [ ! -f sources.txt ]; then
-            echo "⚠️ sources.txt 不存在，仅使用 Loyalsoldier 规则"
+            echo "⚠️ sources.txt 不存在，创建空文件"
             > sources.txt
           fi
           
@@ -127,10 +155,12 @@ jobs:
           fi
           
           # 遍历其他规则源
+          SOURCE_COUNT=0
           while read -r url; do
             [[ -z "$url" || "$url" =~ ^# ]] && continue
             
-            echo "📥 下载: $url"
+            SOURCE_COUNT=$((SOURCE_COUNT + 1))
+            echo "📥 下载规则源 #$SOURCE_COUNT: $url"
             
             if curl -sSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
                grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
@@ -143,9 +173,14 @@ jobs:
             
           done < sources.txt
           
+          echo "📊 处理了 $SOURCE_COUNT 个额外规则源"
+          
           # 去重并过滤
-          if [ ! -s raw.txt ]; then
-            echo "⚠️ 没有提取到任何域名"
+          RAW_COUNT=$(wc -l < raw.txt 2>/dev/null || echo 0)
+          echo "📊 原始条目数: $RAW_COUNT"
+          
+          if [ "$RAW_COUNT" -eq 0 ]; then
+            echo "❌ 没有提取到任何域名！"
             echo "# 空规则集 - 所有源下载失败" > whitelist.txt
           else
             cat raw.txt | \
@@ -153,7 +188,8 @@ jobs:
               sort -u | \
               awk 'length($0) > 3' > whitelist.txt
             
-            echo "✅ 合并完成！共 $(wc -l < whitelist.txt) 条规则"
+            FINAL_COUNT=$(wc -l < whitelist.txt)
+            echo "✅ 合并完成！共 $FINAL_COUNT 条规则"
           fi
           
           if [ -s failed.txt ]; then
@@ -161,45 +197,85 @@ jobs:
             cat failed.txt
           fi
           
-          echo "📋 前 10 条预览："
+          echo "📋 最终规则前 10 条："
           head -n 10 whitelist.txt 2>/dev/null || echo "（空文件）"
 
       - name: 生成 Clash 格式
         run: |
+          echo "📝 生成 Clash 格式配置文件..."
+          
           echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_clash.yaml
           echo "# 上游来源: Loyalsoldier/v2ray-rules-dat + 自定义规则" >> whitelist_clash.yaml
+          echo "# 总规则数: $(wc -l < whitelist.txt 2>/dev/null || echo 0)" >> whitelist_clash.yaml
           echo "payload:" >> whitelist_clash.yaml
           
           if [ -s whitelist.txt ]; then
-            # 限制行数，避免文件过大（Clash有性能问题）
             cat whitelist.txt | head -n 50000 | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
-            echo "# 共 $(wc -l < whitelist.txt) 条规则（仅导出前50000条）" >> whitelist_clash.yaml
           else
             echo "  - '+.example.com'  # 占位" >> whitelist_clash.yaml
           fi
           
           echo "✅ Clash 格式已生成"
 
-      - name: 提交并推送
+      - name: 检查变更并提交
         run: |
+          echo "📤 准备提交变更..."
+          
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          git pull --rebase || echo "没有可拉取的更新"
+          # 查看当前状态
+          echo "📊 Git 状态:"
+          git status
           
-          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
-          
-          if git diff --cached --quiet; then
-            echo "ℹ️ 没有新规则，跳过提交"
+          # 检查是否有变更
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "ℹ️ 没有检测到任何变更，跳过提交"
+            echo "📊 当前 whitelist.txt 大小:"
+            ls -lh whitelist.txt 2>/dev/null || echo "  whitelist.txt 不存在"
             exit 0
           fi
           
-          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')"
-          git push || echo "⚠️ 推送失败"
+          # 拉取最新代码
+          git pull --rebase || echo "⚠️ pull 失败，继续尝试提交"
           
-          echo "🎉 完成！"
+          # 添加文件
+          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
+          
+          # 再次检查是否有暂存的变更
+          if git diff --cached --quiet; then
+            echo "ℹ️ 没有暂存的变更，跳过提交"
+            exit 0
+          fi
+          
+          # 提交
+          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')"
+          
+          # 推送
+          if git push; then
+            echo "✅ 推送成功！"
+          else
+            echo "⚠️ 推送失败，尝试强制推送..."
+            git push --force || echo "❌ 推送仍然失败，请手动检查"
+          fi
+          
+          echo "🎉 所有步骤完成！"
 
       - name: 清理临时文件
+        if: always()
         run: |
-          rm -f geosite.dat geoip.dat raw.txt loyalsoldier_domains.txt failed.txt
+          rm -f geosite.dat raw.txt loyalsoldier_domains.txt failed.txt
           echo "🧹 清理完成"
+
+      - name: 📊 最终报告
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 执行结果报告"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📁 生成的文件："
+          ls -lh whitelist.txt whitelist_clash.yaml 2>/dev/null || echo "  文件不存在"
+          echo ""
+          if [ -f whitelist.txt ]; then
+            echo "📈 规则总数: $(wc -l < whitelist.txt)"
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
