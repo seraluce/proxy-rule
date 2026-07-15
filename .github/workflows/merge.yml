@@ -1,41 +1,140 @@
-name: 规则合并
+name: 规则合并（完整版）
 
 on:
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
+
 permissions:
   contents: write
 
 jobs:
   merge:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/checkout@v4
+      - name: 检出代码
+        uses: actions/checkout@v4
 
-      - name: 下载并提取域名
+      - name: 安装 Python 依赖
         run: |
-          echo "开始下载..."
+          pip3 install v2ray-dat --break-system-packages || pip3 install v2ray-dat
+
+      - name: 下载并完整解析 geosite.dat
+        run: |
+          echo "📥 下载 Loyalsoldier 规则集..."
           curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
-          
-          echo "开始提取域名..."
-          strings geosite.dat | grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
-            sort -u > loyalsoldier_domains.txt
-          
-          COUNT=$(wc -l < loyalsoldier_domains.txt)
-          echo "提取到 $COUNT 个域名"
 
-      - name: 生成白名单
+          echo "🔧 用 Python 完整解析 geosite.dat..."
+          python3 << 'EOF'
+          import sys
+          from v2ray_dat import GeoSite
+
+          try:
+              gs = GeoSite.from_file('geosite.dat')
+          except Exception as e:
+              print(f"❌ 解析失败: {e}")
+              sys.exit(1)
+
+          domains = set()
+          suffix_domains = set()
+
+          # 遍历所有分类
+          for tag_name, tag_data in gs.tags.items():
+              if tag_name in ['cn', 'gov', 'edu', 'mil']:  # 重点提取这些分类
+                  for item in tag_data:
+                      domain_str = str(item)
+                      # 处理不同的格式
+                      if domain_str.startswith('domain:'):
+                          domains.add(domain_str[7:].lower())
+                      elif domain_str.startswith('suffix:'):
+                          suffix_domains.add(domain_str[7:].lower())
+                      elif domain_str.startswith('full:'):
+                          domains.add(domain_str[5:].lower())
+                      elif '.' in domain_str and len(domain_str) > 3:
+                          # 兜底：如果看起来像域名就直接加
+                          domains.add(domain_str.lower())
+
+          # 把后缀也作为域名加入（比如 gov.cn 本身）
+          domains.update(suffix_domains)
+
+          print(f"✅ 共提取 {len(domains)} 个域名，其中 {len(suffix_domains)} 个是后缀规则")
+
+          # 写入文件
+          with open('loyalsoldier_domains.txt', 'w') as f:
+              for d in sorted(domains):
+                  f.write(d + '\n')
+
+          # 检查是否有 gov.cn
+          gov_count = sum(1 for d in domains if 'gov.cn' in d)
+          print(f"📊 包含 gov.cn 的条目数: {gov_count}")
+          if gov_count > 0:
+              print("  示例: " + ', '.join(list(d for d in domains if 'gov.cn' in d)[:5]))
+          EOF
+
+      - name: 合并其他规则源
         run: |
-          cat loyalsoldier_domains.txt | sort -u > whitelist.txt
-          echo "payload:" > whitelist_clash.yaml
-          cat whitelist.txt | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
-          echo "生成完成"
+          if [ ! -f sources.txt ]; then
+            echo "⚠️ sources.txt 不存在，创建空文件"
+            > sources.txt
+          fi
 
-      - name: 提交
+          > raw.txt
+          > failed.txt
+
+          if [ -s loyalsoldier_domains.txt ]; then
+            cat loyalsoldier_domains.txt >> raw.txt
+            echo "✅ 已加入 Loyalsoldier 规则 ($(wc -l < loyalsoldier_domains.txt) 条)"
+          fi
+
+          while read -r url; do
+            [[ -z "$url" || "$url" =~ ^# ]] && continue
+            echo "📥 下载: $url"
+            if curl -sSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
+               grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
+               grep -v '^[0-9]' >> raw.txt; then
+              echo "   ✅ 成功"
+            else
+              echo "   ⚠️ 失败，跳过"
+              echo "$url" >> failed.txt
+            fi
+          done < sources.txt
+
+          if [ ! -s raw.txt ]; then
+            echo "# 空规则集" > whitelist.txt
+          else
+            cat raw.txt | awk '{print tolower($0)}' | sort -u | awk 'length($0) > 3' > whitelist.txt
+            echo "✅ 合并完成！共 $(wc -l < whitelist.txt) 条规则"
+          fi
+
+      - name: 生成 Clash 格式
+        run: |
+          echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_clash.yaml
+          echo "# 上游来源: Loyalsoldier/v2ray-rules-dat + 自定义规则" >> whitelist_clash.yaml
+          echo "payload:" >> whitelist_clash.yaml
+          if [ -s whitelist.txt ]; then
+            cat whitelist.txt | head -n 50000 | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
+            echo "# 共 $(wc -l < whitelist.txt) 条规则（仅导出前50000条）" >> whitelist_clash.yaml
+          else
+            echo "  - '+.example.com'  # 占位" >> whitelist_clash.yaml
+          fi
+          echo "✅ Clash 格式已生成"
+
+      - name: 提交并推送
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add whitelist.txt whitelist_clash.yaml
-          git commit -m "更新规则 $(date +%Y%m%d)" || echo "无变更"
+          git pull --rebase || echo "没有可拉取的更新"
+          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "ℹ️ 没有新规则，跳过提交"
+            exit 0
+          fi
+          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')"
           git push
+          echo "🎉 完成！"
+
+      - name: 清理
+        if: always()
+        run: rm -f geosite.dat raw.txt loyalsoldier_domains.txt failed.txt
