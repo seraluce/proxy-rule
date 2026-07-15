@@ -1,16 +1,39 @@
 name: 规则合并
 
 on:
+  schedule:
+    - cron: '0 6 * * *'
   workflow_dispatch:
 
 jobs:
   merge:
     runs-on: ubuntu-latest
     steps:
-      # 将下面这一行从 @v4 改为 @v5
-      - name: 检出代码
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - name: 测试执行
+      - name: 下载并提取域名
         run: |
-          echo "工作流开始执行"
+          echo "开始下载..."
+          curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
+          
+          echo "开始提取域名..."
+          strings geosite.dat | grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
+            sort -u > loyalsoldier_domains.txt
+          
+          COUNT=$(wc -l < loyalsoldier_domains.txt)
+          echo "提取到 $COUNT 个域名"
+
+      - name: 生成白名单
+        run: |
+          cat loyalsoldier_domains.txt | sort -u > whitelist.txt
+          echo "payload:" > whitelist_clash.yaml
+          cat whitelist.txt | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
+          echo "生成完成"
+
+      - name: 提交
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add whitelist.txt whitelist_clash.yaml
+          git commit -m "更新规则 $(date +%Y%m%d)" || echo "无变更"
+          git push
