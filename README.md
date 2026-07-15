@@ -27,6 +27,15 @@
 | Clash 格式 | `https://你的域名/clash` |
 | 带扩展名 | `https://你的域名/direct.txt` 或 `https://你的域名/direct_clash.yaml` |
 
+### GitHub 加速（集成 gh-proxy）
+
+Worker 同时支持 GitHub 加速功能，访问路径格式：
+
+| 功能 | 格式 |
+|------|------|
+| 加速下载 | `https://你的域名/proxy/https://github.com/...` |
+| 加速克隆 | `git clone https://你的域名/proxy/https://github.com/.../repo.git` |
+
 ## 文件说明
 
 | 文件 | 说明 |
@@ -136,12 +145,12 @@ rules:
    - 左侧菜单选择 `Workers & Pages`
    - 点击 `Create Application`
    - 选择 `Create Worker`
-   - 输入名称（如 `proxy-rule`），点击 `Deploy`
+   - 输入名称（如 `proxy-service`），点击 `Deploy`
 
 3. **配置 Worker 代码**
    - 点击刚创建的 Worker
    - 点击 `Edit Code`
-   - 删除默认代码，粘贴 `worker.js` 文件中的内容
+   - 删除默认代码，粘贴 `worker-combined.js` 文件中的内容（包含 proxy-rule + gh-proxy 功能）
    - 点击 `Save and Deploy`
 
 4. **绑定自定义域名**（推荐）
@@ -152,16 +161,36 @@ rules:
    - 等待 DNS 生效（通常几分钟）
 
 5. **获取订阅地址**
-   - 部署成功后，访问 `https://你的域名/direct.txt` 测试
-   - 将地址填入代理工具的订阅配置中
+   - 访问 `https://你的域名/direct` 测试直连规则
+   - 访问 `https://你的域名/clash` 测试 Clash 格式
+   - GitHub 加速：`https://你的域名/proxy/https://github.com/...`
+
+### Worker 文件说明
+
+| 文件 | 说明 |
+|------|------|
+| `worker.js` | 仅 proxy-rule 功能（简单版） |
+| `worker-combined.js` | proxy-rule + gh-proxy 合并版（推荐） |
 
 ### Worker 代码
 
-完整的 `worker.js` 文件已包含在项目中，核心特性：
+#### proxy-rule 单独版 (`worker.js`)
+
+仅包含直连规则代理功能：
 - 严格路径校验，防止路径遍历攻击
 - 支持无扩展名访问（`/direct`、`/clash`）
 - 24 小时缓存，支持 stale-while-revalidate
 - 友好的错误提示（包括 GitHub 限流处理）
+
+#### 合并版 (`worker-combined.js`) - 推荐
+
+包含 proxy-rule + gh-proxy 双功能：
+
+| 路径 | 功能 |
+|------|------|
+| `/` | 显示使用说明页面 |
+| `/direct` 或 `/clash` | 直连规则代理 |
+| `/proxy/https://github.com/...` | GitHub 加速代理 |
 
 ### 注意事项
 
