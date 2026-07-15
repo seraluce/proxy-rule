@@ -1,4 +1,4 @@
-name: 规则合并去重
+name: 规则合并去重（含GeoIP解析）
 
 on:
   schedule:
@@ -8,32 +8,93 @@ on:
 jobs:
   merge-rules:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      - name: 下载并合并规则
+      - name: 安装依赖
         run: |
-          # 如果 sources.txt 不存在则报错
-          if [ ! -f sources.txt ]; then
-            echo "❌ sources.txt 不存在！"
-            exit 1
+          # 安装 Python 和 pip
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+          # 安装 v2ray-dat 解析库
+          pip3 install v2ray-dat
+      
+      - name: 下载 Loyalsoldier 规则并提取域名
+        run: |
+          echo "📥 下载 Loyalsoldier 规则集..."
+          curl -sSL -o geosite.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geosite.dat
+          curl -sSL -o geoip.dat https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/geoip.dat
+          
+          echo "🔧 提取域名（使用 Python）..."
+          python3 << 'EOF'
+          import os
+          import sys
+          
+          # 尝试导入解析库
+          try:
+              from v2ray_dat import GeoSite
+          except ImportError:
+              print("⚠️ v2ray-dat 未安装，尝试备用方案...")
+              sys.exit(1)
+          
+          # 解析 geosite.dat，提取所有域名
+          domains = set()
+          try:
+              gs = GeoSite.from_file("geosite.dat")
+              for domain in gs.domains:
+                  # 提取完整域名，去掉通配符前缀
+                  if domain.startswith('.'):
+                      domain = domain[1:]
+                  if domain.startswith('*.'):
+                      domain = domain[2:]
+                  domains.add(domain.lower())
+          except Exception as e:
+              print(f"⚠️ 解析失败: {e}")
+              sys.exit(1)
+          
+          # 写入文件
+          with open("loyalsoldier_domains.txt", "w") as f:
+              for d in sorted(domains):
+                  f.write(d + "\n")
+          
+          print(f"✅ 提取完成！共 {len(domains)} 个域名")
+          EOF
+          
+          # 如果 Python 解析失败，尝试用 grep 备用方案
+          if [ ! -s loyalsoldier_domains.txt ]; then
+            echo "⚠️ Python 解析失败，使用备用方案 (strings + grep)..."
+            strings geosite.dat | grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
+              sort -u > loyalsoldier_domains.txt
           fi
           
-          # 清空临时文件
+          echo "📊 Loyalsoldier 域名数量: $(wc -l < loyalsoldier_domains.txt)"
+
+      - name: 下载其他规则源并合并
+        run: |
+          # 如果 sources.txt 不存在则跳过
+          if [ ! -f sources.txt ]; then
+            echo "⚠️ sources.txt 不存在，仅使用 Loyalsoldier 规则"
+            > sources.txt
+          fi
+          
           > raw.txt
           > failed.txt
           
-          # 遍历每个规则源
+          # 先加入 Loyalsoldier 提取的域名
+          if [ -s loyalsoldier_domains.txt ]; then
+            cat loyalsoldier_domains.txt >> raw.txt
+            echo "✅ 已加入 Loyalsoldier 规则"
+          fi
+          
+          # 遍历其他规则源
           while read -r url; do
-            # 跳过空行和注释
             [[ -z "$url" || "$url" =~ ^# ]] && continue
             
             echo "📥 下载: $url"
             
-            # 下载并提取域名，失败则记录
             if curl -sSL --connect-timeout 10 --max-time 30 "$url" 2>/dev/null | \
                grep -oE '([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}' | \
                grep -v '^[0-9]' >> raw.txt; then
@@ -45,13 +106,11 @@ jobs:
             
           done < sources.txt
           
-          # 检查是否有任何域名被提取
+          # 去重并过滤
           if [ ! -s raw.txt ]; then
-            echo "⚠️ 警告：没有提取到任何域名，可能所有源都挂了"
-            # 不退出，继续执行，但生成空文件
-            echo "# 空规则集 - 所有源下载失败" > whitelist.txt
+            echo "⚠️ 没有提取到任何域名"
+            echo "# 空规则集" > whitelist.txt
           else
-            # 排序去重，过滤无效域名
             cat raw.txt | \
               awk '{print tolower($0)}' | \
               sort -u | \
@@ -60,7 +119,6 @@ jobs:
             echo "✅ 合并完成！共 $(wc -l < whitelist.txt) 条规则"
           fi
           
-          # 显示失败列表
           if [ -s failed.txt ]; then
             echo "⚠️ 以下源下载失败："
             cat failed.txt
@@ -72,30 +130,45 @@ jobs:
       - name: 生成 Clash 格式
         run: |
           echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_clash.yaml
+          echo "# 上游来源: Loyalsoldier/v2ray-rules-dat + 自定义规则" >> whitelist_clash.yaml
           echo "payload:" >> whitelist_clash.yaml
+          
           if [ -s whitelist.txt ]; then
             cat whitelist.txt | sed 's/^/  - "+.&"/' >> whitelist_clash.yaml
           else
-            echo "  - "+.example.com"  # 占位，防止格式错误" >> whitelist_clash.yaml
+            echo "  - '+.example.com'  # 占位" >> whitelist_clash.yaml
           fi
+          
           echo "✅ Clash 格式已生成"
+
+      - name: 生成 Surge 格式（可选）
+        run: |
+          echo "# 自动生成于 $(date -u '+%Y-%m-%d %H:%M:%S UTC')" > whitelist_surge.list
+          if [ -s whitelist.txt ]; then
+            cat whitelist.txt | sed 's/^/DOMAIN-SUFFIX,/' >> whitelist_surge.list
+          fi
+          echo "✅ Surge 格式已生成"
 
       - name: 提交并推送
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 拉取最新代码，避免冲突
           git pull --rebase || echo "没有可拉取的更新"
           
-          # 检查是否有变更
-          if git diff --quiet && git diff --staged --quiet; then
+          git add whitelist.txt whitelist_clash.yaml whitelist_surge.list 2>/dev/null || true
+          
+          if git diff --cached --quiet; then
             echo "ℹ️ 没有新规则，跳过提交"
             exit 0
           fi
           
-          git add whitelist.txt whitelist_clash.yaml 2>/dev/null || true
-          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')" || echo "ℹ️ 没有变更可提交"
-          git push || echo "⚠️ 推送失败，可能有冲突"
+          git commit -m "🔄 自动更新规则 $(date -u '+%Y-%m-%d %H:%M')"
+          git push || echo "⚠️ 推送失败"
           
           echo "🎉 完成！"
+
+      - name: 清理临时文件
+        run: |
+          rm -f geosite.dat geoip.dat raw.txt loyalsoldier_domains.txt failed.txt
+          echo "🧹 清理完成"
