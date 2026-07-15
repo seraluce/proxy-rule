@@ -1,0 +1,29 @@
+name: Merge Rules
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 每天6点自动运行
+  workflow_dispatch:      # 也可以手动触发
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download and merge rules
+        run: |
+          # 下载所有规则，提取域名行，去重后排序
+          cat sources.txt | while read url; do
+            curl -sL "$url" | grep -oE '([a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}' >> raw.txt
+          done
+          sort -u raw.txt > whitelist.txt
+          rm raw.txt
+      
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add whitelist.txt
+          git commit -m "Auto update whitelist $(date +'%Y-%m-%d')" || exit 0
+          git push
