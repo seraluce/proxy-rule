@@ -7,20 +7,10 @@ jobs:
   merge:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出
+      # 将下面这一行从 @v4 改为 @v5
+      - name: 检出代码
         uses: actions/checkout@v5
 
       - name: 测试执行
         run: |
           echo "工作流开始执行"
-          echo "当前时间: $(date)"
-          echo "Hello World" > test.txt
-          cat test.txt
-
-      - name: 提交测试
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add test.txt
-          git commit -m "测试提交" || echo "无需提交"
-          git push || echo "推送失败"
