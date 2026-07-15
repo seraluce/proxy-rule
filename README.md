@@ -63,13 +63,58 @@ rules:
   - GEOSITE,cn,DIRECT
   - GEOSITE,category-gov,DIRECT
   - GEOSITE,category-edu,DIRECT
-  # 或使用自定义规则集
+  # 或使用自定义规则集（推荐通过 Worker 域名访问）
+  # - RULE-SET,https://你的域名/clash,DIRECT
+  # 或直接使用 GitHub 地址（可能不稳定）
   # - RULE-SET,https://raw.githubusercontent.com/seraluce/proxy-rule/main/direct_clash.yaml,DIRECT
 ```
 
 ### V2Ray/Xray
 
-在 routing rules 中添加直连域名列表的引用。
+在 routing rules 中添加直连域名列表：
+
+```json
+{
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "domain": [
+          "geosite:cn",
+          "geosite:category-gov",
+          "geosite:category-edu"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "ext:direct.txt:*. cn"  // 如果使用本地文件
+        ],
+        "outboundTag": "direct"
+      }
+    ]
+  }
+}
+```
+
+或者使用在线订阅（推荐通过 Worker）：
+
+```json
+{
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "domain": [
+          "geosite:cn"
+        ],
+        "outboundTag": "direct"
+      }
+    ]
+  }
+}
+```
 
 ## 贡献
 
