@@ -218,7 +218,7 @@ jobs:
             echo "payload:"
             if [ -s direct.txt ]; then
               total=$(wc -l < direct.txt)
-              cat direct.txt | head -n 50000 | sed 's/^/  - "+.&"/'
+              cat direct.txt | head -n 50000 | sed 's/^/  - "+./' | sed 's/$/"/'
               echo "# 共 ${total} 条规则（仅导出前50000条）"
             else
               echo "  - '+.example.com'  # 占位"
