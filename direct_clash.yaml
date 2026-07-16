@@ -1,4 +1,4 @@
-# 自动生成于 2026-07-15 07:54:08 UTC
+# 自动生成于 2026-07-16 07:59:40 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -50002,4 +50002,4 @@ payload:
   - "+.landa-solenoid.com"
   - "+.landai.com"
   - "+.landaiwood.com"
-# 共 102248 条规则（仅导出前50000条）
+# 共 102247 条规则（仅导出前50000条）
