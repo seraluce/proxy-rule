@@ -3,62 +3,131 @@
 // 附加功能：直连规则订阅
 
 const CONFIG = {
-  // GitHub 加速配置
   GH_PROXY: {
     JSDELIVR: true,
     CF_CACHE_TTL: 3600,
-    ALLOWED_DOMAINS: [
+    ALLOWED_DOMAINS: new Set([
       'github.com',
       'raw.githubusercontent.com',
       'gist.githubusercontent.com',
       'gist.github.com',
-    ],
+      'objects.githubusercontent.com',
+      'github.io',
+    ]),
   },
-
-  // 直连规则配置
   PROXY_RULE: {
     GITHUB_RAW_BASE: 'https://raw.githubusercontent.com/seraluce/proxy-rule/main',
     CACHE_TTL: 86400,
   },
+  GIT_PATHS: /^(\/[^/]+\/[^/]+\/)?(info\/refs|HEAD|objects\/|git-upload-pack|git-receive-pack)/,
+};
+
+const INDEX_HTML = buildIndexHTML();
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  'Access-Control-Allow-Headers': 'Range, If-None-Match, If-Modified-Since, Referer',
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type, ETag, Range',
+};
+
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
 };
 
 export default {
   async fetch(request, env) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: { ...CORS_HEADERS, ...SECURITY_HEADERS } });
+    }
+
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // 1. GitHub 加速：/gh/https://... 或直接 /https://...
-    if (path.startsWith('/gh/') || path.startsWith('/https://')) {
-      const targetUrl = path.startsWith('/gh/')
-        ? path.slice(4)
-        : path.slice(1);
+    // GitHub 加速
+    if (path.startsWith('/gh/')) {
+      const targetUrl = path.slice(4);
       return handleGHProxy(request, targetUrl);
     }
 
-    // 2. 直连规则：/rules/*
+    // 直连规则
     if (path.startsWith('/rules')) {
       return handleProxyRule(request, path);
     }
 
-    // 3. 首页
+    // 首页
     if (path === '/' || path === '/index.html') {
-      return new Response(getIndexHTML(), {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      return new Response(INDEX_HTML, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', ...SECURITY_HEADERS },
       });
     }
 
-    // 4. 404
-    return new Response('Not Found', { status: 404 });
+    return new Response(JSON.stringify({ error: 'Not Found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
+    });
   },
 };
 
-// GitHub 加速代理
+function isAllowedDomain(hostname) {
+  return hostname === 'github.com' || CONFIG.GH_PROXY.ALLOWED_DOMAINS.has(hostname)
+    || [...CONFIG.GH_PROXY.ALLOWED_DOMAINS].some(d => hostname.endsWith('.' + d));
+}
+
+function isGitRequest(url) {
+  const ua = '';
+  return CONFIG.GIT_PATHS.test(url.pathname);
+}
+
+function toJsDelivrUrl(url) {
+  const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/);
+  if (!match) return null;
+  const [, user, repo, path] = match;
+  return `https://cdn.jsdelivr.net/gh/${user}/${repo}@${path}`;
+}
+
+function getForwardHeaders(request) {
+  const h = new Headers();
+  h.set('User-Agent', 'GH-Proxy/2.0');
+
+  const range = request.headers.get('Range');
+  if (range) h.set('Range', range);
+
+  const ifNoneMatch = request.headers.get('If-None-Match');
+  if (ifNoneMatch) h.set('If-None-Match', ifNoneMatch);
+
+  const ifModifiedSince = request.headers.get('If-Modified-Since');
+  if (ifModifiedSince) h.set('If-Modified-Since', ifModifiedSince);
+
+  const referer = request.headers.get('Referer');
+  if (referer) h.set('Referer', referer);
+
+  return h;
+}
+
+function buildProxyResponse(response) {
+  const headers = new Response(response.headers).headers;
+  Object.entries(CORS_HEADERS).forEach(([k, v]) => headers.set(k, v));
+  Object.entries(SECURITY_HEADERS).forEach(([k, v]) => headers.set(k, v));
+
+  headers.set('Cache-Control', `public, max-age=${CONFIG.GH_PROXY.CF_CACHE_TTL}`);
+
+  return new Response(response.body, {
+    status: response.status,
+    headers,
+  });
+}
+
 async function handleGHProxy(request, targetUrl) {
   if (!targetUrl) {
-    return new Response('Missing target URL', { status: 400 });
+    return new Response(JSON.stringify({ error: 'Missing target URL' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
+    });
   }
 
-  // 补全协议
   if (!targetUrl.startsWith('http')) {
     targetUrl = 'https://' + targetUrl;
   }
@@ -66,86 +135,49 @@ async function handleGHProxy(request, targetUrl) {
   try {
     const target = new URL(targetUrl);
 
-    // 检查域名白名单
-    const isAllowed = CONFIG.GH_PROXY.ALLOWED_DOMAINS.some(
-      d => target.hostname === d || target.hostname.endsWith('.' + d)
-    );
-
-    if (!isAllowed) {
+    if (!isAllowedDomain(target.hostname)) {
       return new Response(JSON.stringify({ error: 'Domain not allowed' }), {
         status: 403,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
       });
     }
 
-    // jsDelivr 跳转（代码文件）
-    if (CONFIG.GH_PROXY.JSDELIVR && shouldRedirectToJsDelivr(target)) {
+    // jsDelivr 跳转
+    if (CONFIG.GH_PROXY.JSDELIVR && target.hostname === 'github.com') {
       const jsDelivrUrl = toJsDelivrUrl(target);
-      return Response.redirect(jsDelivrUrl, 302);
+      if (jsDelivrUrl) return Response.redirect(jsDelivrUrl, 302);
     }
 
-    // 代理请求
-    const proxyRequest = new Request(targetUrl, {
-      method: request.method,
-      headers: {
-        'User-Agent': 'GH-Proxy/2.0',
-        'Accept': request.headers.get('Accept') || '*/*',
-      },
-    });
+    // Git 协议特殊处理
+    if (isGitRequest(target)) {
+      return handleGitProxy(request, target);
+    }
 
-    const response = await fetch(proxyRequest);
-
-    // 构造响应
-    const headers = new Headers(response.headers);
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Cache-Control', `public, max-age=${CONFIG.GH_PROXY.CF_CACHE_TTL}`);
-
-    return new Response(response.body, {
-      status: response.status,
-      headers,
-    });
+    // 标准代理
+    const proxyHeaders = getForwardHeaders(request);
+    const response = await fetch(target.href, { headers: proxyHeaders });
+    return buildProxyResponse(response);
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
     });
   }
 }
 
-// 判断是否应该跳转 jsDelivr
-function shouldRedirectToJsDelivr(url) {
-  if (url.hostname !== 'github.com') return false;
-  const path = url.pathname;
-  // blob 或 raw 路径的代码文件
-  if (path.includes('/blob/') || path.includes('/raw/')) {
-    const ext = path.split('.').pop()?.toLowerCase();
-    const codeExts = ['js', 'ts', 'jsx', 'tsx', 'css', 'scss', 'less', 'json', 'md', 'py', 'go', 'rs', 'java', 'c', 'cpp', 'h'];
-    return codeExts.includes(ext);
-  }
-  return false;
+async function handleGitProxy(request, target) {
+  const proxyHeaders = getForwardHeaders(request);
+  proxyHeaders.set('User-Agent', 'git/2.0');
+
+  const response = await fetch(target.href, { headers: proxyHeaders });
+  const headers = new Headers(response.headers);
+  Object.entries(CORS_HEADERS).forEach(([k, v]) => headers.set(k, v));
+  Object.entries(SECURITY_HEADERS).forEach(([k, v]) => headers.set(k, v));
+
+  return new Response(response.body, { status: response.status, headers });
 }
 
-// 转换为 jsDelivr URL
-function toJsDelivrUrl(url) {
-  const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/(?:blob|raw)\/(.+)$/);
-  if (!match) return url.href;
-  const [, user, repo, path] = match;
-  return `https://cdn.jsdelivr.net/gh/${user}/${repo}@${path}`;
-}
-
-// 直连规则代理
 async function handleProxyRule(request, path) {
-  const fileMap = {
-    '/rules': 'direct.txt',
-    '/rules/direct': 'direct.txt',
-    '/rules/clash': 'direct_clash.yaml',
-    '/rules/txt': 'direct.txt',
-    '/rules/yaml': 'direct_clash.yaml',
-    '/rules/direct.txt': 'direct.txt',
-    '/rules/direct_clash.yaml': 'direct_clash.yaml',
-  };
-
-  // 根路径返回规则说明
   if (path === '/rules') {
     return new Response(JSON.stringify({
       name: '中国直连域名规则集',
@@ -158,13 +190,30 @@ async function handleProxyRule(request, path) {
         'Clash': '/rules/clash',
       },
     }, null, 2), {
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        ...CORS_HEADERS,
+        ...SECURITY_HEADERS,
+      },
     });
   }
 
+  const fileMap = {
+    '/rules/direct': 'direct.txt',
+    '/rules/clash': 'direct_clash.yaml',
+    '/rules/txt': 'direct.txt',
+    '/rules/yaml': 'direct_clash.yaml',
+    '/rules/direct.txt': 'direct.txt',
+    '/rules/direct_clash.yaml': 'direct_clash.yaml',
+  };
+
   const filePath = fileMap[path];
   if (!filePath) {
-    return new Response('Not Found', { status: 404 });
+    return new Response(JSON.stringify({ error: 'Not Found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
+    });
   }
 
   const githubUrl = `${CONFIG.PROXY_RULE.GITHUB_RAW_BASE}/${filePath}`;
@@ -175,16 +224,16 @@ async function handleProxyRule(request, path) {
     });
 
     if (response.status === 403) {
-      return new Response('GitHub API rate limit exceeded', {
+      return new Response(JSON.stringify({ error: 'GitHub API rate limit exceeded' }), {
         status: 429,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
       });
     }
 
     if (!response.ok) {
-      return new Response(`File not found: ${filePath}`, {
+      return new Response(JSON.stringify({ error: `File not found: ${filePath}` }), {
         status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
       });
     }
 
@@ -197,19 +246,19 @@ async function handleProxyRule(request, path) {
       headers: {
         'Content-Type': contentType,
         'Cache-Control': `public, max-age=${CONFIG.PROXY_RULE.CACHE_TTL}, stale-while-revalidate=43200`,
-        'Access-Control-Allow-Origin': '*',
+        ...CORS_HEADERS,
+        ...SECURITY_HEADERS,
       },
     });
   } catch (error) {
-    return new Response(`Error: ${error.message}`, {
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      headers: { 'Content-Type': 'application/json', ...SECURITY_HEADERS },
     });
   }
 }
 
-// 首页 HTML
-function getIndexHTML() {
+function buildIndexHTML() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -228,7 +277,7 @@ function getIndexHTML() {
     header { text-align: center; margin-bottom: 3rem; }
     h1 { color: #58a6ff; font-size: 2.5rem; margin-bottom: 0.5rem; }
     .subtitle { color: #8b949e; font-size: 1.1rem; }
-    
+
     .card {
       background: #161b22;
       border: 1px solid #30363d;
@@ -244,7 +293,7 @@ function getIndexHTML() {
       align-items: center;
       gap: 0.5rem;
     }
-    
+
     .input-group {
       display: flex;
       gap: 0.5rem;
@@ -261,7 +310,7 @@ function getIndexHTML() {
     }
     input:focus { outline: none; border-color: #58a6ff; }
     input::placeholder { color: #484f58; }
-    
+
     button {
       padding: 0.875rem 1.5rem;
       background: #238636;
@@ -274,7 +323,7 @@ function getIndexHTML() {
       transition: background 0.2s;
     }
     button:hover { background: #2ea043; }
-    
+
     .links {
       display: flex;
       flex-wrap: wrap;
@@ -292,7 +341,7 @@ function getIndexHTML() {
       transition: background 0.2s;
     }
     .links a:hover { background: #30363d; }
-    
+
     code {
       display: block;
       background: #21262d;
@@ -303,13 +352,13 @@ function getIndexHTML() {
       margin-top: 0.5rem;
       word-break: break-all;
     }
-    
+
     .hint {
       color: #8b949e;
       font-size: 0.9rem;
       margin-top: 1rem;
     }
-    
+
     footer {
       text-align: center;
       margin-top: 3rem;
@@ -369,18 +418,17 @@ function getIndexHTML() {
       const input = document.getElementById('gh-input');
       const url = input.value.trim();
       if (!url) return;
-      
-      // 提取纯 URL（去掉可能的域名前缀）
+
       let target = url;
       if (url.includes('/gh/')) {
         target = url.split('/gh/')[1];
       } else if (url.match(/^https?:\\/\\//)) {
         target = url;
       }
-      
+
       window.open('/gh/' + target, '_blank');
     }
-    
+
     document.getElementById('gh-input').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') proxyGH();
     });
