@@ -1,4 +1,4 @@
-# 自动生成于 2026-07-16 07:59:40 UTC
+# 自动生成于 2026-07-17 07:56:03 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -2857,6 +2857,7 @@ payload:
   - "+.api-vod-qcloud.com"
   - "+.api.alibabacloud.com"
   - "+.api.anythinktech.com"
+  - "+.api.blipsandchitz.me"
   - "+.api.so"
   - "+.apiairasia.com"
   - "+.apiandroid.com"
@@ -18405,6 +18406,7 @@ payload:
   - "+.dcyz.com"
   - "+.dcyzq.com"
   - "+.dczcsc.com"
+  - "+.dczcy.com"
   - "+.dczkj.com"
   - "+.dczy168.com"
   - "+.dd-advisor.com"
@@ -19392,6 +19394,7 @@ payload:
   - "+.didichuxing.com"
   - "+.dididapiao.com"
   - "+.dididi88.com"
+  - "+.didifinance.com"
   - "+.didiglobal.com"
   - "+.didimobility.com"
   - "+.didiopenapi.com"
@@ -26281,6 +26284,7 @@ payload:
   - "+.fuca-china.com"
   - "+.fucantec.com"
   - "+.fuchaipower.com"
+  - "+.fuchenkj.com"
   - "+.fuchuangyu.com"
   - "+.fucnm.com"
   - "+.fucol.club"
@@ -37557,6 +37561,7 @@ payload:
   - "+.hrs100.com"
   - "+.hrsalon.org"
   - "+.hrsay.com"
+  - "+.hrsecn.com"
   - "+.hrsee.com"
   - "+.hrsel.com"
   - "+.hrsoft-china.com"
@@ -44201,6 +44206,7 @@ payload:
   - "+.jieshui8.com"
   - "+.jieshuitech.com"
   - "+.jieshuwang.com"
+  - "+.jietianz.com"
   - "+.jietu365.com"
   - "+.jietuhb.com"
   - "+.jietuosh.com"
@@ -49996,10 +50002,4 @@ payload:
   - "+.lancn.net"
   - "+.lancong.net"
   - "+.lanconvey.com"
-  - "+.lancunwater.com"
-  - "+.lancygroup.com"
-  - "+.land136.com"
-  - "+.landa-solenoid.com"
-  - "+.landai.com"
-  - "+.landaiwood.com"
-# 共 102247 条规则（仅导出前50000条）
+# 共 102257 条规则（仅导出前50000条）
