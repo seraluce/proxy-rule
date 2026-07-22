@@ -1,4 +1,4 @@
-# 自动生成于 2026-07-21 08:12:16 UTC
+# 自动生成于 2026-07-22 08:12:47 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -9830,6 +9830,7 @@ payload:
   - "+.cd-zc.com"
   - "+.cd00c44f211031.beer"
   - "+.cd120.com"
+  - "+.cd120.info"
   - "+.cd12371.com"
   - "+.cd1958.com"
   - "+.cd20.net"
@@ -50001,5 +50002,4 @@ payload:
   - "+.lamahui.com"
   - "+.lamall.com"
   - "+.lambda.hk"
-  - "+.lamborlogistics.com"
-# 共 102312 条规则（仅导出前50000条）
+# 共 102316 条规则（仅导出前50000条）
