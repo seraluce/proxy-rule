@@ -1,4 +1,4 @@
-# 自动生成于 2026-08-12 07:12:33 UTC
+# 自动生成于 2026-08-13 07:15:53 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -4589,7 +4589,6 @@ payload:
   - "+.bamboofactorychina.com"
   - "+.bambooolab.com"
   - "+.bambu-lab.com"
-  - "+.bambulab.com"
   - "+.bamengame.com"
   - "+.bamensq.com"
   - "+.bamenzhushou.com"
@@ -7148,6 +7147,7 @@ payload:
   - "+.bktsj.com"
   - "+.bkvps.com"
   - "+.bkweek.com"
+  - "+.bkzhibo.com"
   - "+.bkzzy.com"
   - "+.bl.com"
   - "+.bl0757.com"
@@ -43345,6 +43345,7 @@ payload:
   - "+.jgsemicon.com"
   - "+.jgstour.com"
   - "+.jgsxfw.com"
+  - "+.jgtab.link"
   - "+.jgtc315.com"
   - "+.jguanjia.com"
   - "+.jgums.com"
@@ -45098,6 +45099,7 @@ payload:
   - "+.jkyule.com"
   - "+.jkzhilu.com"
   - "+.jkzl.com"
+  - "+.jkzlrs.com"
   - "+.jkzn365.com"
   - "+.jl-er.com"
   - "+.jl-jssk.com"
@@ -46761,6 +46763,7 @@ payload:
   - "+.juwanhezi.com"
   - "+.juwanshe.com"
   - "+.juweixin.com"
+  - "+.juwinmedia.com"
   - "+.juxia.com"
   - "+.juxian.com"
   - "+.juxiang3d.com"
@@ -49999,7 +50002,4 @@ payload:
   - "+.lanzoub.com"
   - "+.lanzouc.com"
   - "+.lanzoue.com"
-  - "+.lanzouf.com"
-  - "+.lanzoug.com"
-  - "+.lanzouh.com"
-# 共 101802 条规则（仅导出前50000条）
+# 共 101806 条规则（仅导出前50000条）
