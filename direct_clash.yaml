@@ -1,4 +1,4 @@
-# 自动生成于 2026-08-30 10:58:46 UTC
+# 自动生成于 2026-08-31 12:18:54 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -32536,6 +32536,7 @@ payload:
   - "+.gzjkfk.com"
   - "+.gzjkfund.com"
   - "+.gzjkjl.com"
+  - "+.gzjkoa.com"
   - "+.gzjkqh.com"
   - "+.gzjkyljt.com"
   - "+.gzjlp.com"
@@ -33491,6 +33492,7 @@ payload:
   - "+.hanpupharm.com"
   - "+.hanqigroup.com"
   - "+.hanqinghb.com"
+  - "+.hanqiuming888.com"
   - "+.hanqunfeng.com"
   - "+.hans-ad.com"
   - "+.hanschen.site"
@@ -50000,6 +50002,4 @@ payload:
   - "+.larkcloud.com"
   - "+.larkcloud.net"
   - "+.larkfn.com"
-  - "+.larkoffice.com"
-  - "+.larkofficeapp-boe.com"
-# 共 101628 条规则（仅导出前50000条）
+# 共 101631 条规则（仅导出前50000条）
