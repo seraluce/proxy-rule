@@ -1,4 +1,4 @@
-# 自动生成于 2026-09-08 10:21:56 UTC
+# 自动生成于 2026-09-09 10:31:02 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -50002,4 +50002,4 @@ payload:
   - "+.lawyerchina.org"
   - "+.lawyermr.com"
   - "+.lawyerpass.com"
-# 共 101529 条规则（仅导出前50000条）
+# 共 101530 条规则（仅导出前50000条）
