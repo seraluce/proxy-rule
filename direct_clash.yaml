@@ -1,4 +1,4 @@
-# 自动生成于 2026-11-06 13:31:17 UTC
+# 自动生成于 2026-11-07 12:12:25 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -7848,6 +7848,7 @@ payload:
   - "+.bsdongxin.com"
   - "+.bsdt1688.com"
   - "+.bsehk.com"
+  - "+.bseinfo.net"
   - "+.bseqp.com"
   - "+.bserc.com"
   - "+.bsgcnc.com"
@@ -12777,7 +12778,6 @@ payload:
   - "+.chuxinvip.com"
   - "+.chuxueyun.com"
   - "+.chuyaer.com"
-  - "+.chuyu.me"
   - "+.chuzhaobiao.com"
   - "+.chvacuum.com"
   - "+.chvoice.com"
@@ -26563,14 +26563,12 @@ payload:
   - "+.gamehaopu.com"
   - "+.gamehome.tv"
   - "+.gameinns.com"
-  - "+.gameitop.com"
   - "+.gamejym.com"
   - "+.gamekee.com"
   - "+.gamekezhan.com"
   - "+.gamekuaishou.com"
   - "+.gamelet.games"
   - "+.gameley.com"
-  - "+.gameloop.com"
   - "+.gameloop.fun"
   - "+.gamemale.com"
   - "+.gamemcu.com"
@@ -40863,7 +40861,6 @@ payload:
   - "+.in-tencentclb.com"
   - "+.in-tencentclb.net"
   - "+.in-tencentclb.work"
-  - "+.in.th"
   - "+.in001.com"
   - "+.in66.com"
   - "+.in800.com"
@@ -50002,4 +49999,7 @@ payload:
   - "+.leatherhr.com"
   - "+.leautolink.com"
   - "+.leavescn.com"
-# 共 101031 条规则（仅导出前50000条）
+  - "+.leawin.com"
+  - "+.leayin.com"
+  - "+.leb-china.com"
+# 共 101030 条规则（仅导出前50000条）
