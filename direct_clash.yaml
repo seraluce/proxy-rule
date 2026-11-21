@@ -1,4 +1,4 @@
-# 自动生成于 2026-11-20 14:41:23 UTC
+# 自动生成于 2026-11-21 13:57:47 UTC
 # 上游来源: v2fly/domain-list-community + 自定义规则
 # 类型: 直连规则（中国域名直连）
 payload:
@@ -21786,6 +21786,7 @@ payload:
   - "+.echo-isoftstone.com"
   - "+.echo188.com"
   - "+.echoing.tech"
+  - "+.echooai.com"
   - "+.echoteen.com"
   - "+.echovelle.com"
   - "+.echu-cable.com"
@@ -24038,6 +24039,7 @@ payload:
   - "+.fayufaguo.com"
   - "+.fazhi12368.com"
   - "+.fazhijx.com"
+  - "+.fazhipro.com"
   - "+.fazz.fun"
   - "+.fb32dc52302e6b9b.com"
   - "+.fb46cd5483f029aa.com"
@@ -50000,6 +50002,4 @@ payload:
   - "+.leagpoint.com"
   - "+.leagsoft.com"
   - "+.leaguesun.com"
-  - "+.leakeyun.com"
-  - "+.lean.ren"
-# 共 101106 条规则（仅导出前50000条）
+# 共 101109 条规则（仅导出前50000条）
